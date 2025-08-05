@@ -1,3 +1,5 @@
+version: "3.8"
+
 networks:
   frontend:
     driver: bridge
@@ -5,9 +7,9 @@ networks:
     driver: bridge
 
 services:
-  # ─────────────────────────────── DNS BACKEND ────────────────────────────────
+  # ───────────────────────── DNS BACKEND ─────────────────────────
   coredns:
-    image: coredns/coredns:1.12.2
+    image: coredns/coredns:1.12.2   # актуальный stable tag
     container_name: coredns
     restart: unless-stopped
     command: ["-conf", "/Corefile"]
@@ -16,7 +18,7 @@ services:
     networks: [backend]
 
   dnsdist:
-    image: powerdns/dnsdist:1.9.10
+    image: powerdns/dnsdist-19:1.9.5 # stable 1.9.x line
     container_name: dnsdist
     restart: unless-stopped
     volumes:
@@ -24,24 +26,25 @@ services:
     ports:
       - "53:53/tcp"
       - "53:53/udp"
-      - "443:443"       # DoH / DNSCrypt
+      - "853:853/tcp"   # DoT
+      - "8443:8443"     # DoH (чтоб не забрать 443)
     networks: [frontend, backend]
 
-  # ────────────────────────────── DATABASE LAYER ──────────────────────────────
+  # ──────────────────────── DATABASE LAYER ───────────────────────
   postgres:
-    image: postgres:16-alpine    # LTS branch
+    image: postgres:16-alpine
     container_name: npm-postgres
     restart: unless-stopped
     env_file: .env
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
-    networks: [frontend]         # NPM и база могут жить в одной сети
+    networks: [frontend]
 
-  # ────────────────────────── NGINX PROXY MANAGER ────────────────────────────
+  # ───────────────────── NGINX PROXY MANAGER ─────────────────────
   nginx-proxy-manager:
     image: jc21/nginx-proxy-manager:2.12.6
     container_name: npm
@@ -49,27 +52,26 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      - DB_POSTGRES_HOST=postgres
-      - DB_POSTGRES_PORT=5432
-      - DB_POSTGRES_USER=${POSTGRES_USER}
-      - DB_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_POSTGRES_NAME=${POSTGRES_DB}
-      - INITIAL_ADMIN_EMAIL=${NPM_ADMIN_EMAIL}
-      - INITIAL_ADMIN_PASSWORD=${NPM_ADMIN_PASSWORD}
+      DB_POSTGRES_HOST:     postgres
+      DB_POSTGRES_PORT:     5432
+      DB_POSTGRES_USER:     ${POSTGRES_USER}
+      DB_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_POSTGRES_NAME:     ${POSTGRES_DB}
+      INITIAL_ADMIN_EMAIL:  ${NPM_ADMIN_EMAIL}
+      INITIAL_ADMIN_PASSWORD: ${NPM_ADMIN_PASSWORD}
     volumes:
       - ./data/npm/data:/data
       - ./data/npm/letsencrypt:/etc/letsencrypt
     ports:
       - "80:80"
-      - "81:81"
-      - "443:4443"       # наружный HTTPS порт-фронт (чтобы не конфликтовать с dnsdist DoH 443)
+      - "443:443"   # HTTPS для сайтов
+      - "81:81"     # UI
     networks: [frontend]
 
-  # ───────────────────────────── REACT PLACEHOLDER ────────────────────────────
+  # ────────────────────── REACT PLACEHOLDER ──────────────────────
   leanwebstudio-web:
-    build: ./react-app          # см. Dockerfile ниже
+    build: ./react-app        # см. Dockerfile
     container_name: leanwebstudio-web
     restart: unless-stopped
-    expose:
-      - "3000"                  # внутренний порт React
+    expose: ["3000"]
     networks: [frontend]
