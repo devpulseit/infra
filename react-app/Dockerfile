@@ -1,11 +1,11 @@
-# -- build stage -------------------------------------------------
-FROM node:20-alpine AS build
+# Build stage
+FROM node:20-alpine AS builder
 WORKDIR /app
 COPY . .
-RUN npm ci && npm run build     # создаёт production-сборку в /app/build
+RUN npm install && npm run build
 
-# -- runtime stage -----------------------------------------------
+# Production nginx stage
 FROM nginx:1.27.0-alpine
-COPY --from=build /app/build /usr/share/nginx/html
+COPY --from=builder /app/dist /usr/share/nginx/html
 EXPOSE 3000
 CMD ["nginx", "-g", "daemon off;"]
