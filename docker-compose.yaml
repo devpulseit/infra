@@ -1,0 +1,75 @@
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+
+services:
+  # ─────────────────────────────── DNS BACKEND ────────────────────────────────
+  coredns:
+    image: coredns/coredns:1.12.2
+    container_name: coredns
+    restart: unless-stopped
+    command: ["-conf", "/Corefile"]
+    volumes:
+      - ./coredns/Corefile:/Corefile:ro
+    networks: [backend]
+
+  dnsdist:
+    image: powerdns/dnsdist:1.9.10
+    container_name: dnsdist
+    restart: unless-stopped
+    volumes:
+      - ./dnsdist/dnsdist.conf:/etc/dnsdist/dnsdist.conf:ro
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "443:443"       # DoH / DNSCrypt
+    networks: [frontend, backend]
+
+  # ────────────────────────────── DATABASE LAYER ──────────────────────────────
+  postgres:
+    image: postgres:16-alpine    # LTS branch
+    container_name: npm-postgres
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    networks: [frontend]         # NPM и база могут жить в одной сети
+
+  # ────────────────────────── NGINX PROXY MANAGER ────────────────────────────
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:2.12.6
+    container_name: npm
+    depends_on: [postgres]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DB_POSTGRES_HOST=postgres
+      - DB_POSTGRES_PORT=5432
+      - DB_POSTGRES_USER=${POSTGRES_USER}
+      - DB_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POSTGRES_NAME=${POSTGRES_DB}
+      - INITIAL_ADMIN_EMAIL=${NPM_ADMIN_EMAIL}
+      - INITIAL_ADMIN_PASSWORD=${NPM_ADMIN_PASSWORD}
+    volumes:
+      - ./data/npm/data:/data
+      - ./data/npm/letsencrypt:/etc/letsencrypt
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:4443"       # наружный HTTPS порт-фронт (чтобы не конфликтовать с dnsdist DoH 443)
+    networks: [frontend]
+
+  # ───────────────────────────── REACT PLACEHOLDER ────────────────────────────
+  leanwebstudio-web:
+    build: ./react-app          # см. Dockerfile ниже
+    container_name: leanwebstudio-web
+    restart: unless-stopped
+    expose:
+      - "3000"                  # внутренний порт React
+    networks: [frontend]
